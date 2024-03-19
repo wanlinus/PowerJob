@@ -1,6 +1,7 @@
 package tech.powerjob.server.persistence.config;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernateProperties;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernateSettings;
 import org.springframework.boot.autoconfigure.orm.jpa.JpaProperties;
@@ -15,6 +16,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Map;
 import java.util.Objects;
 
@@ -61,11 +66,54 @@ public class RemoteJpaConfig {
         return hibernateProperties.determineHibernateProperties(jpaProperties.getProperties(), hibernateSettings);
     }
 
+    @Value("${spring.datasource.core.jdbc-url}")
+    private String flywayUrl;
+    @Value("${spring.datasource.core.username}")
+    private String username;
+    @Value("${spring.datasource.core.password}")
+    private String password;
+
+
     @Primary
     @Bean(name = "remoteEntityManagerFactory")
     public LocalContainerEntityManagerFactoryBean initRemoteEntityManagerFactory(@Qualifier("omsRemoteDatasource") DataSource omsRemoteDatasource,@Qualifier("multiDatasourceProperties") MultiDatasourceProperties properties, EntityManagerFactoryBuilder builder) {
         Map<String, Object> datasourceProperties = genDatasourceProperties();
         datasourceProperties.putAll(properties.getRemote().getHibernate().getProperties());
+
+        Connection conn = null;
+        Statement stmt = null;
+
+        //提取参数
+        String dbUrl = flywayUrl.substring(0, flywayUrl.indexOf('/', 15)) + "?connectTimeout=5000&socketTimeout=5000";
+
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            DriverManager.setLoginTimeout(5);
+            conn = DriverManager.getConnection(dbUrl, username, password);
+            stmt = conn.createStatement();
+            String sqlCreateDb = "CREATE DATABASE IF NOT EXISTS  `powerjob-product` DEFAULT CHARSET utf8 COLLATE utf8_general_ci";
+            stmt.executeUpdate(sqlCreateDb);
+        } catch (SQLException se) {
+            se.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (stmt != null) {
+                    stmt.close();
+                }
+            } catch (SQLException se2) {
+                se2.printStackTrace();
+            }
+            try {
+                if (conn != null) {
+                    conn.close();
+                }
+            } catch (SQLException se) {
+                se.printStackTrace();
+            }
+        }
+
         return builder
                 .dataSource(omsRemoteDatasource)
                 .properties(datasourceProperties)
